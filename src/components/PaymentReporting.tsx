@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { Agent, Project } from '../types';
-import { DollarSign, FileText, Download } from 'lucide-react';
+import { Agent, Project, Payment } from '../types';
+import { DollarSign, FileText, Download, Send } from 'lucide-react';
 
 interface PaymentSummary {
   agent_id: string;
@@ -13,6 +13,7 @@ interface PaymentSummary {
   total_days: number;
   total_hours: number;
   total_amount: number;
+  selected?: boolean;
 }
 
 export function PaymentReporting() {
@@ -25,6 +26,9 @@ export function PaymentReporting() {
     new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]
   );
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
+  const [paymentMethod, setPaymentMethod] = useState('bank_transfer');
+  const [generatingPayments, setGeneratingPayments] = useState(false);
 
   useEffect(() => {
     loadAgents();
@@ -106,6 +110,7 @@ export function PaymentReporting() {
           total_days: 0,
           total_hours: 0,
           total_amount: 0,
+          selected: false,
         });
       }
 
@@ -116,9 +121,67 @@ export function PaymentReporting() {
     });
 
     setSummaries(Array.from(summaryMap.values()));
+    setSelectedRows(new Set());
+  };
+
+  const toggleRowSelection = (index: number) => {
+    const newSelected = new Set(selectedRows);
+    if (newSelected.has(index)) {
+      newSelected.delete(index);
+    } else {
+      newSelected.add(index);
+    }
+    setSelectedRows(newSelected);
+  };
+
+  const toggleAllSelection = () => {
+    if (selectedRows.size === summaries.length) {
+      setSelectedRows(new Set());
+    } else {
+      setSelectedRows(new Set(summaries.map((_, i) => i)));
+    }
+  };
+
+  const generatePayments = async () => {
+    if (selectedRows.size === 0) {
+      alert('Veuillez sélectionner au moins une ligne');
+      return;
+    }
+
+    setGeneratingPayments(true);
+
+    const selectedSummaries = summaries.filter((_, i) => selectedRows.has(i));
+    const payments: Partial<Payment>[] = selectedSummaries.map(summary => ({
+      agent_id: summary.agent_id,
+      project_id: summary.project_id,
+      period_start: startDate,
+      period_end: endDate,
+      total_amount: summary.total_amount,
+      payment_date: new Date().toISOString().split('T')[0],
+      payment_method: paymentMethod,
+      status: 'pending',
+      notes: `${summary.total_days} jours de travail - ${summary.project_code}`,
+    }));
+
+    const { error } = await supabase
+      .from('payments')
+      .insert(payments);
+
+    if (error) {
+      console.error('Error generating payments:', error);
+      alert('Erreur: ' + error.message);
+    } else {
+      alert(`${payments.length} paiement(s) généré(s) avec succès !`);
+      setSelectedRows(new Set());
+    }
+
+    setGeneratingPayments(false);
   };
 
   const totalGlobal = summaries.reduce((sum, s) => sum + s.total_amount, 0);
+  const selectedTotal = summaries
+    .filter((_, i) => selectedRows.has(i))
+    .reduce((sum, s) => sum + s.total_amount, 0);
 
   const exportToCSV = () => {
     const headers = ['Matricule', 'Agent', 'Projet', 'Jours', 'Heures', 'Montant Total (DA)'];
@@ -227,14 +290,14 @@ export function PaymentReporting() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white p-6 rounded-lg shadow-md">
           <div className="flex items-center gap-3">
             <div className="p-3 bg-teal-100 rounded-lg">
               <DollarSign size={24} className="text-teal-600" />
             </div>
             <div>
-              <p className="text-sm text-gray-600">Total à Payer</p>
+              <p className="text-sm text-gray-600">Total Général</p>
               <p className="text-2xl font-bold text-gray-800">{totalGlobal.toLocaleString()} DA</p>
             </div>
           </div>
@@ -258,20 +321,71 @@ export function PaymentReporting() {
               <FileText size={24} className="text-orange-600" />
             </div>
             <div>
-              <p className="text-sm text-gray-600">Total Jours Travaillés</p>
-              <p className="text-2xl font-bold text-gray-800">
-                {summaries.reduce((sum, s) => sum + s.total_days, 0)}
-              </p>
+              <p className="text-sm text-gray-600">Sélectionnées</p>
+              <p className="text-2xl font-bold text-gray-800">{selectedRows.size}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-lg shadow-md">
+          <div className="flex items-center gap-3">
+            <div className="p-3 bg-green-100 rounded-lg">
+              <DollarSign size={24} className="text-green-600" />
+            </div>
+            <div>
+              <p className="text-sm text-gray-600">Montant Sélectionné</p>
+              <p className="text-2xl font-bold text-gray-800">{selectedTotal.toLocaleString()} DA</p>
             </div>
           </div>
         </div>
       </div>
+
+      {selectedRows.size > 0 && (
+        <div className="bg-white p-4 rounded-lg shadow-md border-l-4 border-orange-500 flex items-center justify-between">
+          <div>
+            <p className="font-semibold text-gray-800">{selectedRows.size} ligne(s) sélectionnée(s)</p>
+            <p className="text-sm text-gray-600">Montant: {selectedTotal.toLocaleString()} DA</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Méthode de Paiement
+              </label>
+              <select
+                value={paymentMethod}
+                onChange={(e) => setPaymentMethod(e.target.value)}
+                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+              >
+                <option value="bank_transfer">Virement Bancaire</option>
+                <option value="cash">Espèces</option>
+                <option value="check">Chèque</option>
+              </select>
+            </div>
+            <button
+              onClick={generatePayments}
+              disabled={generatingPayments}
+              className="flex items-center gap-2 bg-orange-600 text-white px-6 py-2 rounded-lg hover:bg-orange-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed h-fit"
+            >
+              <Send size={18} />
+              Générer les Paiements
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="bg-white rounded-lg shadow-md overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
+                <th className="px-4 py-3 text-left">
+                  <input
+                    type="checkbox"
+                    checked={selectedRows.size === summaries.length && summaries.length > 0}
+                    onChange={toggleAllSelection}
+                    className="w-4 h-4 text-teal-600 border-gray-300 rounded focus:ring-teal-500"
+                  />
+                </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Matricule
                 </th>
@@ -294,7 +408,18 @@ export function PaymentReporting() {
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {summaries.map((summary, index) => (
-                <tr key={index} className="hover:bg-gray-50">
+                <tr
+                  key={index}
+                  className={`hover:bg-gray-50 ${selectedRows.has(index) ? 'bg-orange-50' : ''}`}
+                >
+                  <td className="px-4 py-3">
+                    <input
+                      type="checkbox"
+                      checked={selectedRows.has(index)}
+                      onChange={() => toggleRowSelection(index)}
+                      className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
+                    />
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                     {summary.employee_id}
                   </td>
@@ -317,7 +442,7 @@ export function PaymentReporting() {
               ))}
               {summaries.length > 0 && (
                 <tr className="bg-gray-50 font-bold">
-                  <td colSpan={5} className="px-6 py-4 text-right text-sm text-gray-900">
+                  <td colSpan={6} className="px-6 py-4 text-right text-sm text-gray-900">
                     TOTAL GÉNÉRAL
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">

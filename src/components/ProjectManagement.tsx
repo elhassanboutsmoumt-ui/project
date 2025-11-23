@@ -1,21 +1,12 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { Project } from '../types';
-import { FolderPlus, Edit2, Trash2, Save, X } from 'lucide-react';
+import { Save, X, Plus } from 'lucide-react';
 
 export function ProjectManagement() {
   const [projects, setProjects] = useState<Project[]>([]);
-  const [isAdding, setIsAdding] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [formData, setFormData] = useState<Partial<Project>>({
-    name: '',
-    code: '',
-    description: '',
-    start_date: new Date().toISOString().split('T')[0],
-    end_date: null,
-    budget: 0,
-    active: true,
-  });
+  const [editingRows, setEditingRows] = useState<{ [key: string]: Partial<Project> }>({});
+  const [newRows, setNewRows] = useState<{ [key: string]: Partial<Project> }>({});
 
   useEffect(() => {
     loadProjects();
@@ -34,41 +25,91 @@ export function ProjectManagement() {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const addNewRow = () => {
+    const key = `new-${Date.now()}-${Math.random()}`;
+    const today = new Date().toISOString().split('T')[0];
+    setNewRows({
+      ...newRows,
+      [key]: {
+        name: '',
+        code: '',
+        description: '',
+        start_date: today,
+        end_date: null,
+        budget: 0,
+        active: true,
+      },
+    });
+  };
 
-    if (editingId) {
-      const { error } = await supabase
-        .from('projects')
-        .update(formData)
-        .eq('id', editingId);
+  const updateNewRow = (key: string, field: string, value: any) => {
+    setNewRows({
+      ...newRows,
+      [key]: { ...newRows[key], [field]: value },
+    });
+  };
 
-      if (error) {
-        console.error('Error updating project:', error);
-      } else {
-        setEditingId(null);
-        resetForm();
-        loadProjects();
-      }
+  const updateExistingRow = (id: string, field: string, value: any) => {
+    setEditingRows({
+      ...editingRows,
+      [id]: { ...editingRows[id], [field]: value },
+    });
+  };
+
+  const deleteNewRow = (key: string) => {
+    const { [key]: _, ...rest } = newRows;
+    setNewRows(rest);
+  };
+
+  const saveNewRows = async () => {
+    const validRows = Object.entries(newRows)
+      .filter(([_, data]) => data.name && data.code)
+      .map(([_, data]) => data);
+
+    if (validRows.length === 0) {
+      alert('Veuillez remplir au moins Nom et Code pour chaque ligne');
+      return;
+    }
+
+    const { error } = await supabase
+      .from('projects')
+      .insert(validRows);
+
+    if (error) {
+      console.error('Error saving projects:', error);
+      alert('Erreur: ' + error.message);
     } else {
-      const { error } = await supabase
-        .from('projects')
-        .insert([formData]);
-
-      if (error) {
-        console.error('Error adding project:', error);
-      } else {
-        setIsAdding(false);
-        resetForm();
-        loadProjects();
-      }
+      setNewRows({});
+      loadProjects();
     }
   };
 
-  const handleEdit = (project: Project) => {
-    setEditingId(project.id);
-    setFormData(project);
-    setIsAdding(true);
+  const saveExistingRows = async () => {
+    const updates = Object.entries(editingRows)
+      .filter(([_, data]) => Object.keys(data).length > 0)
+      .map(([id, data]) => ({ id, ...data }));
+
+    if (updates.length === 0) {
+      alert('Aucune modification à enregistrer');
+      return;
+    }
+
+    for (const update of updates) {
+      const { id, ...data } = update;
+      const { error } = await supabase
+        .from('projects')
+        .update(data)
+        .eq('id', id);
+
+      if (error) {
+        console.error('Error updating project:', error);
+        alert('Erreur: ' + error.message);
+        return;
+      }
+    }
+
+    setEditingRows({});
+    loadProjects();
   };
 
   const handleDelete = async (id: string) => {
@@ -86,221 +127,193 @@ export function ProjectManagement() {
     }
   };
 
-  const resetForm = () => {
-    setFormData({
-      name: '',
-      code: '',
-      description: '',
-      start_date: new Date().toISOString().split('T')[0],
-      end_date: null,
-      budget: 0,
-      active: true,
-    });
-  };
-
-  const handleCancel = () => {
-    setIsAdding(false);
-    setEditingId(null);
-    resetForm();
-  };
+  const hasNewRows = Object.keys(newRows).length > 0;
+  const hasEdits = Object.keys(editingRows).length > 0;
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold text-gray-800">Gestion des Projets</h2>
-        {!isAdding && (
-          <button
-            onClick={() => setIsAdding(true)}
-            className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors"
-          >
-            <FolderPlus size={20} />
-            Ajouter un Projet
-          </button>
-        )}
+        <button
+          onClick={addNewRow}
+          className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors"
+        >
+          <Plus size={20} />
+          Ajouter une Ligne
+        </button>
       </div>
-
-      {isAdding && (
-        <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-md space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Nom du Projet *
-              </label>
-              <input
-                type="text"
-                required
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Code Projet *
-              </label>
-              <input
-                type="text"
-                required
-                value={formData.code}
-                onChange={(e) => setFormData({ ...formData, code: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-              />
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Description
-              </label>
-              <textarea
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                rows={3}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Date de Début *
-              </label>
-              <input
-                type="date"
-                required
-                value={formData.start_date}
-                onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Date de Fin
-              </label>
-              <input
-                type="date"
-                value={formData.end_date || ''}
-                onChange={(e) => setFormData({ ...formData, end_date: e.target.value || null })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Budget (DA)
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                value={formData.budget}
-                onChange={(e) => setFormData({ ...formData, budget: parseFloat(e.target.value) || 0 })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-              />
-            </div>
-
-            <div className="flex items-center">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={formData.active}
-                  onChange={(e) => setFormData({ ...formData, active: e.target.checked })}
-                  className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
-                />
-                <span className="text-sm font-medium text-gray-700">Actif</span>
-              </label>
-            </div>
-          </div>
-
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={handleCancel}
-              className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              <X size={18} />
-              Annuler
-            </button>
-            <button
-              type="submit"
-              className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors"
-            >
-              <Save size={18} />
-              {editingId ? 'Modifier' : 'Enregistrer'}
-            </button>
-          </div>
-        </form>
-      )}
 
       <div className="bg-white rounded-lg shadow-md overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-gray-50 border-b border-gray-200">
+            <thead className="bg-gray-50 border-b border-gray-200 sticky top-0">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Code
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-20">
+                  Code *
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Nom
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-28">
+                  Nom *
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">
                   Description
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Dates
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-20">
+                  Début
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-20">
+                  Fin
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
                   Budget
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Statut
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-16">
+                  Actif
                 </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-16">
                   Actions
                 </th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
+            <tbody className="divide-y divide-gray-200">
               {projects.map((project) => (
                 <tr key={project.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                    {project.code}
+                  <td className="px-4 py-2">
+                    <input
+                      type="text"
+                      value={editingRows[project.id]?.code ?? project.code}
+                      onChange={(e) => updateExistingRow(project.id, 'code', e.target.value)}
+                      className="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-green-500 focus:border-transparent"
+                    />
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {project.name}
+                  <td className="px-4 py-2">
+                    <input
+                      type="text"
+                      value={editingRows[project.id]?.name ?? project.name}
+                      onChange={(e) => updateExistingRow(project.id, 'name', e.target.value)}
+                      className="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-green-500 focus:border-transparent"
+                    />
                   </td>
-                  <td className="px-6 py-4 text-sm text-gray-900 max-w-xs truncate">
-                    {project.description}
+                  <td className="px-4 py-2">
+                    <input
+                      type="text"
+                      value={editingRows[project.id]?.description ?? project.description}
+                      onChange={(e) => updateExistingRow(project.id, 'description', e.target.value)}
+                      className="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-green-500 focus:border-transparent"
+                    />
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    <div className="flex flex-col">
-                      <span>Début: {new Date(project.start_date).toLocaleDateString('fr-FR')}</span>
-                      {project.end_date && (
-                        <span>Fin: {new Date(project.end_date).toLocaleDateString('fr-FR')}</span>
-                      )}
-                    </div>
+                  <td className="px-4 py-2">
+                    <input
+                      type="date"
+                      value={editingRows[project.id]?.start_date ?? project.start_date}
+                      onChange={(e) => updateExistingRow(project.id, 'start_date', e.target.value)}
+                      className="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-green-500 focus:border-transparent"
+                    />
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {project.budget.toLocaleString()} DA
+                  <td className="px-4 py-2">
+                    <input
+                      type="date"
+                      value={editingRows[project.id]?.end_date ?? project.end_date ?? ''}
+                      onChange={(e) => updateExistingRow(project.id, 'end_date', e.target.value || null)}
+                      className="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-green-500 focus:border-transparent"
+                    />
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                      project.active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                    }`}>
-                      {project.active ? 'Actif' : 'Inactif'}
-                    </span>
+                  <td className="px-4 py-2">
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={editingRows[project.id]?.budget ?? project.budget}
+                      onChange={(e) => updateExistingRow(project.id, 'budget', parseFloat(e.target.value) || 0)}
+                      className="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-green-500 focus:border-transparent"
+                    />
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <button
-                      onClick={() => handleEdit(project)}
-                      className="text-green-600 hover:text-green-900 mr-3"
-                    >
-                      <Edit2 size={18} />
-                    </button>
+                  <td className="px-4 py-2">
+                    <input
+                      type="checkbox"
+                      checked={editingRows[project.id]?.active ?? project.active}
+                      onChange={(e) => updateExistingRow(project.id, 'active', e.target.checked)}
+                      className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
+                    />
+                  </td>
+                  <td className="px-4 py-2 text-right">
                     <button
                       onClick={() => handleDelete(project.id)}
-                      className="text-red-600 hover:text-red-900"
+                      className="text-red-600 hover:text-red-900 text-sm"
                     >
-                      <Trash2 size={18} />
+                      Suppr.
+                    </button>
+                  </td>
+                </tr>
+              ))}
+
+              {Object.entries(newRows).map(([key, data]) => (
+                <tr key={key} className="bg-green-50 hover:bg-green-100 border-b border-green-200">
+                  <td className="px-4 py-2">
+                    <input
+                      type="text"
+                      placeholder="Ex: PROJ001"
+                      value={data.code || ''}
+                      onChange={(e) => updateNewRow(key, 'code', e.target.value)}
+                      className="w-full px-2 py-1 border border-green-300 rounded text-sm focus:ring-1 focus:ring-green-500 focus:border-transparent"
+                    />
+                  </td>
+                  <td className="px-4 py-2">
+                    <input
+                      type="text"
+                      placeholder="Ex: Projet A"
+                      value={data.name || ''}
+                      onChange={(e) => updateNewRow(key, 'name', e.target.value)}
+                      className="w-full px-2 py-1 border border-green-300 rounded text-sm focus:ring-1 focus:ring-green-500 focus:border-transparent"
+                    />
+                  </td>
+                  <td className="px-4 py-2">
+                    <input
+                      type="text"
+                      placeholder="Description"
+                      value={data.description || ''}
+                      onChange={(e) => updateNewRow(key, 'description', e.target.value)}
+                      className="w-full px-2 py-1 border border-green-300 rounded text-sm focus:ring-1 focus:ring-green-500 focus:border-transparent"
+                    />
+                  </td>
+                  <td className="px-4 py-2">
+                    <input
+                      type="date"
+                      value={data.start_date || ''}
+                      onChange={(e) => updateNewRow(key, 'start_date', e.target.value)}
+                      className="w-full px-2 py-1 border border-green-300 rounded text-sm focus:ring-1 focus:ring-green-500 focus:border-transparent"
+                    />
+                  </td>
+                  <td className="px-4 py-2">
+                    <input
+                      type="date"
+                      value={data.end_date || ''}
+                      onChange={(e) => updateNewRow(key, 'end_date', e.target.value || null)}
+                      className="w-full px-2 py-1 border border-green-300 rounded text-sm focus:ring-1 focus:ring-green-500 focus:border-transparent"
+                    />
+                  </td>
+                  <td className="px-4 py-2">
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="0"
+                      value={data.budget || ''}
+                      onChange={(e) => updateNewRow(key, 'budget', parseFloat(e.target.value) || 0)}
+                      className="w-full px-2 py-1 border border-green-300 rounded text-sm focus:ring-1 focus:ring-green-500 focus:border-transparent"
+                    />
+                  </td>
+                  <td className="px-4 py-2">
+                    <input
+                      type="checkbox"
+                      checked={data.active ?? true}
+                      onChange={(e) => updateNewRow(key, 'active', e.target.checked)}
+                      className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
+                    />
+                  </td>
+                  <td className="px-4 py-2 text-right">
+                    <button
+                      onClick={() => deleteNewRow(key)}
+                      className="text-red-600 hover:text-red-900 text-sm"
+                    >
+                      Suppr.
                     </button>
                   </td>
                 </tr>
@@ -308,12 +321,48 @@ export function ProjectManagement() {
             </tbody>
           </table>
         </div>
-        {projects.length === 0 && (
+
+        {projects.length === 0 && hasNewRows === false && (
           <div className="text-center py-12 text-gray-500">
             Aucun projet enregistré
           </div>
         )}
       </div>
+
+      {(hasNewRows || hasEdits) && (
+        <div className="flex justify-end gap-2">
+          {hasNewRows && (
+            <button
+              onClick={saveNewRows}
+              className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors"
+            >
+              <Save size={18} />
+              Enregistrer les Nouveaux Projets
+            </button>
+          )}
+          {hasEdits && (
+            <button
+              onClick={saveExistingRows}
+              className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <Save size={18} />
+              Enregistrer les Modifications
+            </button>
+          )}
+          {(hasNewRows || hasEdits) && (
+            <button
+              onClick={() => {
+                setNewRows({});
+                setEditingRows({});
+              }}
+              className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              <X size={18} />
+              Annuler
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

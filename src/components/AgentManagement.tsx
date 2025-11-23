@@ -1,22 +1,13 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { Agent } from '../types';
-import { UserPlus, Edit2, Trash2, Save, X } from 'lucide-react';
+import { UserPlus, Trash2, Save, X, Plus } from 'lucide-react';
 
 export function AgentManagement() {
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [isAdding, setIsAdding] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [formData, setFormData] = useState<Partial<Agent>>({
-    full_name: '',
-    employee_id: '',
-    daily_rate: 0,
-    monthly_rate: 0,
-    payment_type: 'daily',
-    phone: '',
-    email: '',
-    active: true,
-  });
+  const [editingRows, setEditingRows] = useState<{ [key: string]: Partial<Agent> }>({});
+  const [newRows, setNewRows] = useState<{ [key: string]: Partial<Agent> }>({});
+  const [newRowCount, setNewRowCount] = useState(0);
 
   useEffect(() => {
     loadAgents();
@@ -35,41 +26,92 @@ export function AgentManagement() {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const addNewRow = () => {
+    const key = `new-${Date.now()}-${Math.random()}`;
+    setNewRows({
+      ...newRows,
+      [key]: {
+        full_name: '',
+        employee_id: '',
+        daily_rate: 0,
+        monthly_rate: 0,
+        payment_type: 'daily',
+        phone: '',
+        email: '',
+        active: true,
+      },
+    });
+    setNewRowCount(newRowCount + 1);
+  };
 
-    if (editingId) {
-      const { error } = await supabase
-        .from('agents')
-        .update(formData)
-        .eq('id', editingId);
+  const updateNewRow = (key: string, field: string, value: any) => {
+    setNewRows({
+      ...newRows,
+      [key]: { ...newRows[key], [field]: value },
+    });
+  };
 
-      if (error) {
-        console.error('Error updating agent:', error);
-      } else {
-        setEditingId(null);
-        resetForm();
-        loadAgents();
-      }
+  const updateExistingRow = (id: string, field: string, value: any) => {
+    setEditingRows({
+      ...editingRows,
+      [id]: { ...editingRows[id], [field]: value },
+    });
+  };
+
+  const deleteNewRow = (key: string) => {
+    const { [key]: _, ...rest } = newRows;
+    setNewRows(rest);
+  };
+
+  const saveNewRows = async () => {
+    const validRows = Object.entries(newRows)
+      .filter(([_, data]) => data.full_name && data.employee_id)
+      .map(([_, data]) => data);
+
+    if (validRows.length === 0) {
+      alert('Veuillez remplir au moins Nom et Matricule pour chaque ligne');
+      return;
+    }
+
+    const { error } = await supabase
+      .from('agents')
+      .insert(validRows);
+
+    if (error) {
+      console.error('Error saving agents:', error);
+      alert('Erreur: ' + error.message);
     } else {
-      const { error } = await supabase
-        .from('agents')
-        .insert([formData]);
-
-      if (error) {
-        console.error('Error adding agent:', error);
-      } else {
-        setIsAdding(false);
-        resetForm();
-        loadAgents();
-      }
+      setNewRows({});
+      loadAgents();
     }
   };
 
-  const handleEdit = (agent: Agent) => {
-    setEditingId(agent.id);
-    setFormData(agent);
-    setIsAdding(true);
+  const saveExistingRows = async () => {
+    const updates = Object.entries(editingRows)
+      .filter(([_, data]) => Object.keys(data).length > 0)
+      .map(([id, data]) => ({ id, ...data }));
+
+    if (updates.length === 0) {
+      alert('Aucune modification à enregistrer');
+      return;
+    }
+
+    for (const update of updates) {
+      const { id, ...data } = update;
+      const { error } = await supabase
+        .from('agents')
+        .update(data)
+        .eq('id', id);
+
+      if (error) {
+        console.error('Error updating agent:', error);
+        alert('Erreur: ' + error.message);
+        return;
+      }
+    }
+
+    setEditingRows({});
+    loadAgents();
   };
 
   const handleDelete = async (id: string) => {
@@ -87,237 +129,200 @@ export function AgentManagement() {
     }
   };
 
-  const resetForm = () => {
-    setFormData({
-      full_name: '',
-      employee_id: '',
-      daily_rate: 0,
-      monthly_rate: 0,
-      payment_type: 'daily',
-      phone: '',
-      email: '',
-      active: true,
-    });
-  };
-
-  const handleCancel = () => {
-    setIsAdding(false);
-    setEditingId(null);
-    resetForm();
-  };
+  const hasNewRows = Object.keys(newRows).length > 0;
+  const hasEdits = Object.keys(editingRows).length > 0;
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold text-gray-800">Gestion des Agents</h2>
-        {!isAdding && (
-          <button
-            onClick={() => setIsAdding(true)}
-            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            <UserPlus size={20} />
-            Ajouter un Agent
-          </button>
-        )}
+        <button
+          onClick={addNewRow}
+          className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+        >
+          <Plus size={20} />
+          Ajouter une Ligne
+        </button>
       </div>
-
-      {isAdding && (
-        <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-md space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Nom Complet *
-              </label>
-              <input
-                type="text"
-                required
-                value={formData.full_name}
-                onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Matricule *
-              </label>
-              <input
-                type="text"
-                required
-                value={formData.employee_id}
-                onChange={(e) => setFormData({ ...formData, employee_id: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Type de Paiement *
-              </label>
-              <select
-                value={formData.payment_type}
-                onChange={(e) => setFormData({ ...formData, payment_type: e.target.value as 'daily' | 'monthly' })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
-                <option value="daily">Journalier</option>
-                <option value="monthly">Mensuel</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Taux Journalier (DA)
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                value={formData.daily_rate}
-                onChange={(e) => setFormData({ ...formData, daily_rate: parseFloat(e.target.value) || 0 })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Taux Mensuel (DA)
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                value={formData.monthly_rate}
-                onChange={(e) => setFormData({ ...formData, monthly_rate: parseFloat(e.target.value) || 0 })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Téléphone
-              </label>
-              <input
-                type="text"
-                value={formData.phone}
-                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Email
-              </label>
-              <input
-                type="email"
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-
-            <div className="flex items-center">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={formData.active}
-                  onChange={(e) => setFormData({ ...formData, active: e.target.checked })}
-                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                />
-                <span className="text-sm font-medium text-gray-700">Actif</span>
-              </label>
-            </div>
-          </div>
-
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={handleCancel}
-              className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              <X size={18} />
-              Annuler
-            </button>
-            <button
-              type="submit"
-              className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              <Save size={18} />
-              {editingId ? 'Modifier' : 'Enregistrer'}
-            </button>
-          </div>
-        </form>
-      )}
 
       <div className="bg-white rounded-lg shadow-md overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-gray-50 border-b border-gray-200">
+            <thead className="bg-gray-50 border-b border-gray-200 sticky top-0">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Matricule
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
+                  Matricule *
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Nom
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">
+                  Nom *
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-28">
                   Type
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Taux Journalier
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-28">
+                  Taux Jour
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Taux Mensuel
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-28">
+                  Taux Mois
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
                   Téléphone
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Statut
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-20">
+                  Actif
                 </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-16">
                   Actions
                 </th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
+            <tbody className="divide-y divide-gray-200">
               {agents.map((agent) => (
                 <tr key={agent.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                    {agent.employee_id}
+                  <td className="px-4 py-2">
+                    <input
+                      type="text"
+                      value={editingRows[agent.id]?.employee_id ?? agent.employee_id}
+                      onChange={(e) => updateExistingRow(agent.id, 'employee_id', e.target.value)}
+                      className="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-blue-500 focus:border-transparent"
+                    />
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {agent.full_name}
+                  <td className="px-4 py-2">
+                    <input
+                      type="text"
+                      value={editingRows[agent.id]?.full_name ?? agent.full_name}
+                      onChange={(e) => updateExistingRow(agent.id, 'full_name', e.target.value)}
+                      className="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-blue-500 focus:border-transparent"
+                    />
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {agent.payment_type === 'daily' ? 'Journalier' : 'Mensuel'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {agent.daily_rate.toLocaleString()} DA
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {agent.monthly_rate.toLocaleString()} DA
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {agent.phone}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                      agent.active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                    }`}>
-                      {agent.active ? 'Actif' : 'Inactif'}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <button
-                      onClick={() => handleEdit(agent)}
-                      className="text-blue-600 hover:text-blue-900 mr-3"
+                  <td className="px-4 py-2">
+                    <select
+                      value={editingRows[agent.id]?.payment_type ?? agent.payment_type}
+                      onChange={(e) => updateExistingRow(agent.id, 'payment_type', e.target.value as 'daily' | 'monthly')}
+                      className="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-blue-500 focus:border-transparent"
                     >
-                      <Edit2 size={18} />
-                    </button>
+                      <option value="daily">Journalier</option>
+                      <option value="monthly">Mensuel</option>
+                    </select>
+                  </td>
+                  <td className="px-4 py-2">
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={editingRows[agent.id]?.daily_rate ?? agent.daily_rate}
+                      onChange={(e) => updateExistingRow(agent.id, 'daily_rate', parseFloat(e.target.value) || 0)}
+                      className="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </td>
+                  <td className="px-4 py-2">
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={editingRows[agent.id]?.monthly_rate ?? agent.monthly_rate}
+                      onChange={(e) => updateExistingRow(agent.id, 'monthly_rate', parseFloat(e.target.value) || 0)}
+                      className="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </td>
+                  <td className="px-4 py-2">
+                    <input
+                      type="text"
+                      value={editingRows[agent.id]?.phone ?? agent.phone}
+                      onChange={(e) => updateExistingRow(agent.id, 'phone', e.target.value)}
+                      className="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </td>
+                  <td className="px-4 py-2">
+                    <input
+                      type="checkbox"
+                      checked={editingRows[agent.id]?.active ?? agent.active}
+                      onChange={(e) => updateExistingRow(agent.id, 'active', e.target.checked)}
+                      className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                    />
+                  </td>
+                  <td className="px-4 py-2 text-right">
                     <button
                       onClick={() => handleDelete(agent.id)}
-                      className="text-red-600 hover:text-red-900"
+                      className="text-red-600 hover:text-red-900 text-sm"
                     >
-                      <Trash2 size={18} />
+                      Suppr.
+                    </button>
+                  </td>
+                </tr>
+              ))}
+
+              {Object.entries(newRows).map(([key, data]) => (
+                <tr key={key} className="bg-blue-50 hover:bg-blue-100 border-b border-blue-200">
+                  <td className="px-4 py-2">
+                    <input
+                      type="text"
+                      placeholder="Ex: EMP001"
+                      value={data.employee_id || ''}
+                      onChange={(e) => updateNewRow(key, 'employee_id', e.target.value)}
+                      className="w-full px-2 py-1 border border-blue-300 rounded text-sm focus:ring-1 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </td>
+                  <td className="px-4 py-2">
+                    <input
+                      type="text"
+                      placeholder="Ex: Ahmed"
+                      value={data.full_name || ''}
+                      onChange={(e) => updateNewRow(key, 'full_name', e.target.value)}
+                      className="w-full px-2 py-1 border border-blue-300 rounded text-sm focus:ring-1 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </td>
+                  <td className="px-4 py-2">
+                    <select
+                      value={data.payment_type || 'daily'}
+                      onChange={(e) => updateNewRow(key, 'payment_type', e.target.value as 'daily' | 'monthly')}
+                      className="w-full px-2 py-1 border border-blue-300 rounded text-sm focus:ring-1 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      <option value="daily">Journalier</option>
+                      <option value="monthly">Mensuel</option>
+                    </select>
+                  </td>
+                  <td className="px-4 py-2">
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="0"
+                      value={data.daily_rate || ''}
+                      onChange={(e) => updateNewRow(key, 'daily_rate', parseFloat(e.target.value) || 0)}
+                      className="w-full px-2 py-1 border border-blue-300 rounded text-sm focus:ring-1 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </td>
+                  <td className="px-4 py-2">
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="0"
+                      value={data.monthly_rate || ''}
+                      onChange={(e) => updateNewRow(key, 'monthly_rate', parseFloat(e.target.value) || 0)}
+                      className="w-full px-2 py-1 border border-blue-300 rounded text-sm focus:ring-1 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </td>
+                  <td className="px-4 py-2">
+                    <input
+                      type="text"
+                      placeholder="0123456789"
+                      value={data.phone || ''}
+                      onChange={(e) => updateNewRow(key, 'phone', e.target.value)}
+                      className="w-full px-2 py-1 border border-blue-300 rounded text-sm focus:ring-1 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </td>
+                  <td className="px-4 py-2">
+                    <input
+                      type="checkbox"
+                      checked={data.active ?? true}
+                      onChange={(e) => updateNewRow(key, 'active', e.target.checked)}
+                      className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                    />
+                  </td>
+                  <td className="px-4 py-2 text-right">
+                    <button
+                      onClick={() => deleteNewRow(key)}
+                      className="text-red-600 hover:text-red-900 text-sm"
+                    >
+                      Suppr.
                     </button>
                   </td>
                 </tr>
@@ -325,12 +330,48 @@ export function AgentManagement() {
             </tbody>
           </table>
         </div>
-        {agents.length === 0 && (
+
+        {agents.length === 0 && hasNewRows === false && (
           <div className="text-center py-12 text-gray-500">
             Aucun agent enregistré
           </div>
         )}
       </div>
+
+      {(hasNewRows || hasEdits) && (
+        <div className="flex justify-end gap-2">
+          {hasNewRows && (
+            <button
+              onClick={saveNewRows}
+              className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors"
+            >
+              <Save size={18} />
+              Enregistrer les Nouveaux Agents
+            </button>
+          )}
+          {hasEdits && (
+            <button
+              onClick={saveExistingRows}
+              className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <Save size={18} />
+              Enregistrer les Modifications
+            </button>
+          )}
+          {(hasNewRows || hasEdits) && (
+            <button
+              onClick={() => {
+                setNewRows({});
+                setEditingRows({});
+              }}
+              className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              <X size={18} />
+              Annuler
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
