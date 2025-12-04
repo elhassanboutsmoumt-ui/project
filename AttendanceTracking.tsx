@@ -78,7 +78,7 @@ export function AttendanceTracking() {
           project_id: '',
           date: selectedDate,
           hours_worked: 8,
-          daily_amount: agent.daily_rate,
+          daily_amount: 0,
           notes: '',
         };
       }
@@ -92,8 +92,13 @@ export function AttendanceTracking() {
     const updatedData = { ...attendanceData[agentId] };
     updatedData[field] = value;
 
-    if (field === 'project_id' && value) {
-      updatedData.daily_amount = agent?.daily_rate || 0;
+    if (field === 'project_id') {
+      if (value === 'ABSENT') {
+        updatedData.project_id = '';
+        updatedData.daily_amount = 0;
+      } else if (value) {
+        updatedData.daily_amount = agent?.daily_rate || 0;
+      }
     }
 
     setAttendanceData({
@@ -253,7 +258,7 @@ export function AttendanceTracking() {
                     </td>
                     <td className="px-4 py-3">
                       <select
-                        value={data?.project_id || ''}
+                        value={data?.project_id || 'ABSENT'}
                         onChange={(e) => updateAttendanceData(agent.id, 'project_id', e.target.value)}
                         className={`w-full px-2 py-1 border rounded text-sm focus:ring-1 focus:ring-orange-500 focus:border-transparent ${
                           hasProject
@@ -261,7 +266,7 @@ export function AttendanceTracking() {
                             : 'border-red-300 bg-white'
                         }`}
                       >
-                        <option value="">-- ABSENT --</option>
+                        <option value="ABSENT">ABSENT</option>
                         {projects.map((project) => (
                           <option key={project.id} value={project.id}>
                             {project.code} - {project.name}
